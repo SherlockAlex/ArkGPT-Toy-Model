@@ -56,11 +56,18 @@ class Model(nn.Module):
         self.logits = nn.Linear(128,vocab_count,bias=False)
         pass
 
-    def forward(self,x):
+    def forward(self,x,labels = None):
         x = self.embedding(x)
         x = self.linear(x)
         x = self.block(x)
         logits = self.logits(x)
+        if labels is not None:
+            B,T,C = logits.shape
+            logits_reshaped = logits.view(B * T, C)
+            labels_reshaped = labels.view(B * T)
+            loss = F.cross_entropy(input=logits_reshaped, target=labels_reshaped)
+            return logits,loss
+            pass
         return logits
     
     def forget(self):
