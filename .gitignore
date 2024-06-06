@@ -1,0 +1,9 @@
+
+*.pyc
+*.pyc
+__pycache__/Memory.cpython-39.pyc
+*.pyc
+语料/news2016zh_train.json
+语料/news2016zh_valid.json
+*.pt
+*.pyc
