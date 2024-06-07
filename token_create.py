@@ -1,3 +1,5 @@
-from tokenizer import Tokenizer
+import tiktoken
 
-tokener = Tokenizer(mode="char",encoding="utf-16").load("./chinese.json")
+tokener = tiktoken.get_encoding('cl100k_base')
+text = 'Hello what is your name?My name is Javis!Nice to meet you,sir.'
+print(tokener.decode([12870, 94]),tokener.encode(text))

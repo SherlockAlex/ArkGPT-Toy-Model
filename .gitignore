@@ -7,3 +7,5 @@ __pycache__/Memory.cpython-39.pyc
 语料/news2016zh_valid.json
 *.pt
 *.pyc
+语料/baike_qa_train.json
+语料/baike_qa_valid.json

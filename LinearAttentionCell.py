@@ -17,9 +17,6 @@ class LinearAttentionCell(nn.Module):
         self.wk = nn.Linear(in_features=in_features,out_features=out_features).to(device)
         self.wv = nn.Linear(in_features=in_features,out_features=out_features,bias=False).to(device)
 
-        self.wp = nn.Linear(in_features=out_features,out_features=out_features).to(device)
-        self.wo = nn.Linear(in_features=out_features,out_features=out_features).to(device)
-
         self.memory = 0
         self.zeta = 0
         self.pos = 0
@@ -28,8 +25,6 @@ class LinearAttentionCell(nn.Module):
 
         indices = torch.arange(self.out_features//2,dtype=torch.float32,device=self.device)
         self.thetas = 10000**(-2*indices)
-
-        self.cell_state = 0
 
 
     @torch.no_grad
@@ -68,18 +63,12 @@ class LinearAttentionCell(nn.Module):
             k_y = ((k*self.rotatry).squeeze().index_select(-1,self.swap_indices).unsqueeze(1))
             k_y = k_y.view(B,T,C)
             k = k_x*cosines + k_y*sines
-            
-
-            if self.pos == 0:
-                self.cell_state = 0 * v
 
         q = nn.functional.elu(q*self.dk) + 1
         k = nn.functional.elu(k*self.dk) + 1
 
-        sigma = torch.sigmoid(self.wq(v))
         with torch.no_grad():
             
-            self.cell_state = sigma*self.cell_state + (1-sigma)*v
             self.memory = self.memory + torch.matmul(torch.transpose(k,-2,-1),v)
             self.zeta = self.zeta + torch.transpose(k,-2,-1)
         
@@ -87,7 +76,7 @@ class LinearAttentionCell(nn.Module):
         scale = torch.matmul(q,self.zeta)
         memory = torch.matmul(q,self.memory)
 
-        y = (memory/scale) + torch.tanh(self.wo(self.cell_state))
+        y = (memory/scale)
 
         with torch.no_grad():
             self.pos = self.pos + 1
@@ -99,7 +88,7 @@ class LinearAttentionCell(nn.Module):
             self.memory = 0
             self.zeta = 0
             self.pos = 0
-            self.cell_state = 0
+            #self.cell_state = 0
         pass
     
     pass

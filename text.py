@@ -1,7 +1,10 @@
 import json
 
 science_files=[
-    './量子力学史话.txt'
+    './量子力学史话.txt',
+    './本草纲目.txt',
+    './大语言模型.txt',
+    './量子力学笔记.txt'
 ]
 
 # 小说
@@ -41,7 +44,13 @@ novel_files = [
     './福尔摩斯探案集.txt',
     './大军师联盟.txt',
     './一念永恒.txt',
-    './北洋军阀史话.txt'
+    './北洋军阀史话.txt',
+    './山海经.txt',
+    './微微一笑很倾城.txt',
+    './校花的贴身高手.txt',
+    './一数封神.txt',
+    './仙人消失之后.txt',
+    './白骨大圣.txt'
 ]
 
 def get_text():
@@ -55,17 +64,16 @@ def get_text():
         with open('./语料/科学/'+file, 'r',encoding="utf-16") as f:
             text = text + f.read()
 
-    text = text.replace("\n","")
+    #text = text.replace("\n","")
     text = text.replace("※","")
-    text = text.replace("　","")
+    #text = text.replace("　","")
     text = text.replace("*","")
-    text = text.replace(" ","")
+    #text = text.replace(" ","")
     return text
 
 def get_size():
     text = get_text()
 
     memory_size = len(text)/1024/1024
-    print(f"小说数量:{len(novel_files)},大小:{memory_size} MB") #1MB
-
+    print(f"小说数量:{len(novel_files)},字数:{len(text)},大小:{memory_size} MB") #1MB
 
