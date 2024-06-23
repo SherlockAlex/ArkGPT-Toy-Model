@@ -1,13 +1,14 @@
 import torch
-from Model import Model
+from Model import Decoder
 import tiktoken
-
+import random
+import time
 
 class Ark():
-    def __init__(self,d_model,units = 256,device = 'cpu'):
+    def __init__(self,d_model,units = 256,num_block = 16,device = 'cpu'):
         self.tokener = tiktoken.get_encoding("cl100k_base")
         vocab_count = self.tokener.max_token_value + 1
-        self.model = Model(vocab_count,d_model,units,device).to(device)
+        self.model = Decoder(vocab_count,d_model,units,num_block,device).to(device)
         self.device = device
         pass
 
@@ -19,11 +20,11 @@ class Ark():
         return self.tokener.decode(tokens)
         pass
 
-    def __call__(self,text:str,context_length = 512,temperature = 0.5):
-        return self.generate(text=text,context_length=context_length,temperature=temperature)
+    def __call__(self,text:str,context_length = 512,temperature = 0.5,print_char = True):
+        return self.generate(text=text,context_length=context_length,temperature=temperature,print_char=print_char)
         pass
 
-    def generate(self,text:str,context_length = 512,temperature = 0.5):
+    def generate(self,text:str,context_length = 512,temperature = 0.5,print_char = True):
         if text == "":
             return
 
@@ -35,12 +36,14 @@ class Ark():
         y = self.model(x)
 
         y = torch.softmax(y/temperature,dim=-1)
-        y = torch.multinomial(input=y[:,-1,:], num_samples=1)
+        y = torch.multinomial(input=y, num_samples=1)
         token = y[:,-1].cpu().tolist()[0]
         tokens.append(token)
 
         word = self.tokener.decode([token])
-        print(text+word,end="",flush=True)
+
+        if print_char:
+            print(text+word,end="",flush=True)
 
         decode_token = []
 
@@ -49,7 +52,7 @@ class Ark():
             y = self.model(x)
 
             y = torch.softmax(y,dim=-1)
-            y = torch.multinomial(input=y[:,-1,:], num_samples=1)
+            y = torch.multinomial(input=y, num_samples=1)
             token = y[:,-1].cpu().tolist()[0]
             tokens.append(token)
 
@@ -57,11 +60,14 @@ class Ark():
             word = self.tokener.decode(decode_token)
             if not all(char == '�' for char in word):
                 decode_token.clear()
-                print(word,end="",flush=True)
+                if print_char:
+                    print(word,end="",flush=True)
                 pass
 
             pass
-        print('\n')
+
+        if print_char:
+            print('\n')
         sentence = self.tokener.decode(tokens)
         return sentence
         pass
@@ -74,65 +80,89 @@ class Ark():
         self.model.load_state_dict(torch.load(filename))
         print("模型加载成功")
         self.model.eval()
+        pass
 
     def save(self,filename = "./model-ckpt.pt"):
         torch.save(self.model.state_dict(),filename)
+        pass
 
-    def train(self,dataset:str,context_length = 512,epochs = 1000,batch_size = 8,learning_rate = 0.001,eval_iters = 20,save_model = False,model_filename = "./model-ckpt.pt"):
-        tokens_data = self.encode(dataset)
-        tokens_data = torch.tensor(tokens_data,dtype=torch.long,device=self.device)
+    def train(self,
+              dataset:str,
+              context_length = 512,
+              epochs = 1000,
+              batch_size = 8,
+              learning_rate = 0.00005,
+              eval_iters = 20,
+              save_model = False,
+              random_context = False,
+              model_filename = "./model-ckpt.pt"
+              ):
+        
+        min_context_length = 128
+        max_context_length = (min_context_length + 1) if context_length<=min_context_length else context_length
 
-        data_count = len(tokens_data)
+        split_idx = int(len(dataset) * 0.9)
+        train_text = dataset[:split_idx]
+        val_text = dataset[split_idx:]
 
-        split_idx = int(data_count * 0.9)
-        train_data = tokens_data[:split_idx]
-        val_data = tokens_data[split_idx:]
+        train_data = torch.tensor(self.encode(train_text),dtype=torch.long,device=self.device)
+        val_data = torch.tensor(self.encode(val_text),dtype=torch.long,device=self.device)
 
-        def get_batch(split: str):
+        def get_batch(split: str,ctx_len:int):
             data = train_data if split == 'train' else val_data
-            idxs = torch.randint(low=0, high=len(data) - context_length, size=(batch_size,))
-            x = torch.stack([data[idx:idx + context_length] for idx in idxs]).to(self.device)
-            y = torch.stack([data[idx + 1:idx + context_length + 1] for idx in idxs]).to(self.device)
+            idxs = torch.randint(low=0, high=len(data) - ctx_len, size=(batch_size,))
+            x = torch.stack([data[idx:idx + ctx_len] for idx in idxs]).to(self.device)
+            y = torch.stack([data[idx + 1:idx + ctx_len + 1] for idx in idxs]).to(self.device)
             return x, y
         
         @torch.no_grad
-        def estimate_loss():
+        def estimate_loss(ctx_len:int):
             out = {}
             self.model.eval()
     
             for split in ['train', 'valid']:
                 losses = torch.zeros(eval_iters)
+                accuracies = torch.zeros(eval_iters)
                 for k in range(eval_iters):
-                    x_batch, y_batch = get_batch(split)
-                    logits,loss = self.model(x_batch,y_batch)
+                    x_batch, y_batch = get_batch(split,ctx_len)
+                    loss,accuracy = self.model(x_batch,y_batch)
                     losses[k] = loss.item()
+                    accuracies[k] = accuracy
 
-                out[split] = losses.mean()
+                out[split] = losses.mean(),accuracies.mean()
                 pass
             self.model.train()
             return out
         
-        
-        print(f"模型正在使用{self.device}训练")
-        optimizer = torch.optim.AdamW(params=self.model.parameters(), lr=learning_rate)
-        tracked_losses = []
-        for step in range(epochs):
-            if step % eval_iters == 0 or step == epochs - 1:
-                losses = estimate_loss()
-                tracked_losses.append(losses)
-                print('Step:', step, 'Training Loss:', round(losses['train'].item(), 3), 'Validation Loss:',
-                    round(losses['valid'].item(), 3))
-                pass
-        
-            xb, yb = get_batch('train')
-            logits, loss = self.model(xb, yb)
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
-            pass
+        try:
+            optimizer = torch.optim.AdamW(params=self.model.parameters(), lr=learning_rate)
+            tracked_losses = []
+            print(f"启动{self.device}训练,训练参数量:{self.head()}")
+            for step in range(epochs):
+                lenght = random.randint(min_context_length,max_context_length) if random_context else context_length
 
-        if save_model:
+                if step % eval_iters == 0 or step == epochs - 1:
+                    out = estimate_loss(lenght)
+                    tracked_losses.append(out)
+                    train_loss,train_acc = out['train']
+                    val_loss,val_acc = out['train']
+                    print(f"学习次数:{step}/{epochs},训练损失:{round(train_loss.item(), 3)},训练正确率:{round(train_acc.item(),3)},测试损失:{round(val_loss.item(), 3)},测试正确率:{round(val_acc.item(),3)},上下文长度:{lenght}")
+                    pass
+                
+                xb, yb = get_batch('train',lenght)
+                loss,accuracy = self.model(xb, yb)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+                time.sleep(1.0/30)
+                pass
+
+            if save_model:
+                self.save(model_filename)
+        except Exception as e:
+            print(f"异常:\n{e}\n正保存模型，请稍后")
             self.save(model_filename)
+            pass
 
         pass
 
