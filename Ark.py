@@ -1,15 +1,20 @@
 import torch
-from Model import Decoder
+from Model import DecoderLanguageModel
 import tiktoken
 import random
 import time
 
+'''
+方舟语言模型
+'''
+
 class Ark():
-    def __init__(self,d_model,units = 256,num_block = 16,device = 'cpu'):
+    def __init__(self,d_model = 512,units = 512,num_block = 12,device = 'cpu'):
         self.tokener = tiktoken.get_encoding("cl100k_base")
         vocab_count = self.tokener.max_token_value + 1
-        self.model = Decoder(vocab_count,d_model,units,num_block,device).to(device)
+        self.model = DecoderLanguageModel(vocab_count,d_model,units,num_block,device).to(device)
         self.device = device
+        self.eps = 1e-8
         pass
 
     def encode(self,text:str):
@@ -24,46 +29,41 @@ class Ark():
         return self.generate(text=text,context_length=context_length,temperature=temperature,print_char=print_char)
         pass
 
-    def generate(self,text:str,context_length = 512,temperature = 0.5,print_char = True):
+    def generate(self,text:str,context_length:int = 512,temperature:float = 0.5,print_char:bool = True):
         if text == "":
             return
 
         indices = self.tokener.encode(text)
 
         tokens = []
-
-        x = torch.tensor([indices],dtype=torch.long,device = self.device)
-        y = self.model(x)
-
-        y = torch.softmax(y/temperature,dim=-1)
-        y = torch.multinomial(input=y, num_samples=1)
-        token = y[:,-1].cpu().tolist()[0]
-        tokens.append(token)
-
-        word = self.tokener.decode([token])
-
-        if print_char:
-            print(text+word,end="",flush=True)
-
         decode_token = []
 
-        for i in range(context_length):
-            x = torch.tensor([[token]],dtype=torch.long,device=self.device)
-            y = self.model(x)
-
-            y = torch.softmax(y,dim=-1)
-            y = torch.multinomial(input=y, num_samples=1)
+        def predict(index,begin_text:str=None):
+            x = torch.tensor([index],dtype=torch.long,device = self.device)
+            logits = self.model(x)
+            probility = torch.softmax(logits/(temperature+self.eps),dim=-1)
+            y = torch.multinomial(input=probility, num_samples=1)
+        
             token = y[:,-1].cpu().tolist()[0]
             tokens.append(token)
-
+        
             decode_token.append(token)
             word = self.tokener.decode(decode_token)
-            if not all(char == '�' for char in word):
-                decode_token.clear()
-                if print_char:
-                    print(word,end="",flush=True)
-                pass
+            if all(char == '�' for char in word):
+                return token
+            decode_token.clear()
+            if not print_char:
+                return token
+            if begin_text is not None:
+                print(begin_text+word,end="",flush=True)
+            print(word,end="",flush=True)
+            return token
+            pass
+        
+        token = predict(indices,begin_text=text)
 
+        for i in range(context_length):
+            token = predict([token])
             pass
 
         if print_char:
@@ -80,7 +80,7 @@ class Ark():
         self.model.load_state_dict(torch.load(filename))
         print("模型加载成功")
         self.model.eval()
-        pass
+        return self
 
     def save(self,filename = "./model-ckpt.pt"):
         torch.save(self.model.state_dict(),filename)
@@ -145,7 +145,7 @@ class Ark():
                     out = estimate_loss(lenght)
                     tracked_losses.append(out)
                     train_loss,train_acc = out['train']
-                    val_loss,val_acc = out['train']
+                    val_loss,val_acc = out['valid']
                     print(f"学习次数:{step}/{epochs},训练损失:{round(train_loss.item(), 3)},训练正确率:{round(train_acc.item(),3)},测试损失:{round(val_loss.item(), 3)},测试正确率:{round(val_acc.item(),3)},上下文长度:{lenght}")
                     pass
                 
