@@ -1,1 +1,1 @@
-D:/ProgramData/Anaconda3/envs/pytorch/python.exe d:/Work/Noah/Noah/run.py train load
+D:/ProgramData/Anaconda3/envs/pytorch/python.exe d:/Work/Noah/Noah/pretrain.py train load

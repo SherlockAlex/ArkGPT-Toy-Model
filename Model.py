@@ -10,19 +10,13 @@ class LinearAttentionCell(nn.Module):
         self.device = device
         self.in_features = in_features
         self.out_features = out_features
-        # 计算query、key、value
-        self.wq = nn.Linear(in_features=in_features,out_features=out_features,bias=False).to(device)
-        self.wk = nn.Linear(in_features=in_features,out_features=out_features,bias=False).to(device)
-        self.wv = nn.Linear(in_features=in_features,out_features=out_features,bias=False).to(device)
-        # 计算线性注意力分数余项
-        self.wo = nn.Linear(in_features=out_features,out_features=out_features).to(device)
         # 记忆矩阵与缩放矩阵以及当前状态
         self.memory = 0
         self.zeta = 0
         # 细胞当前处理token的位置
         self.pos = 0
         # 计算缩放因子
-        self.dk = torch.sqrt(torch.tensor(1.0/self.out_features,dtype=torch.float32,device=self.device))
+        self.dk = torch.tensor(1.0/self.out_features,dtype=torch.float32,device=self.device)
         # 使用位置编码
         self.use_rope = False
         pass
@@ -38,12 +32,10 @@ class LinearAttentionCell(nn.Module):
         sine = sine.repeat_interleave(2,dim=-1)
         return sine
 
-    def forward(self,x:torch.Tensor):
-        
-        # 自注意力机制
-        q = self.wq(x)
-        k = self.wk(x)
-        v = self.wv(x)
+    def forward(self,query,key,value):
+        q = query
+        k = key
+        v = value
 
         if self.use_rope:
             theta = self.pos*self.thetas
@@ -62,8 +54,14 @@ class LinearAttentionCell(nn.Module):
             q = q_x*cosines + q_y*sines
             k = k_x*cosines + k_y*sines
 
-        q = torch.nn.functional.elu(q*self.dk) + 1
-        k = torch.nn.functional.elu(k*self.dk) + 1
+        q = torch.nn.functional.elu(q) + 1
+        k = torch.nn.functional.elu(k) + 1
+        
+        # 只要等式 $(x1y1+x2y2)<=(x1^2+y1^2)(x2^2+y2^2)$ 成立
+        # 下面不等式可以增大线性注意力，甚至超越softmax注意力
+        q = q*q*q*q*q
+        k = k*k*k*k*k*self.dk
+
         # 更新模型的记忆
         delta_zeta = k.transpose(-2,-1)
         delta_memory = torch.matmul(delta_zeta,v)
@@ -72,7 +70,8 @@ class LinearAttentionCell(nn.Module):
         zeta = self.zeta + delta_zeta
         # 检索模型中记忆相关的部分
         scale = torch.matmul(q,zeta) + eps     #使用无穷小量替代0，防止出现Nan的情况
-        score = torch.matmul(q,memory) + torch.tanh(self.wo(v))
+        score = torch.matmul(q,memory)
+        
         attention = score/scale
         self.apply_update(memory=memory,zeta=zeta)
         return attention
@@ -110,10 +109,17 @@ class LinearAttention(nn.Module):
         self.dropout = nn.Dropout(0.2)
         pass
 
-    def forward(self,x:torch.Tensor) -> torch.Tensor:
-        B,T,S = x.shape
-        x = x.view(B,T,1,S)
-        y = torch.stack([self.cell(x[:,i,:,:]) for i in range(T)],dim=0)
+    def forward(self,query:torch.Tensor,key:torch.Tensor,value:torch.Tensor) -> torch.Tensor:
+        B,T,S = query.shape
+        query = query.view(B,T,1,S)
+
+        B,T,S = key.shape
+        key = key.view(B,T,1,S)
+
+        B,T,S = value.shape
+        value = value.view(B,T,1,S)
+
+        y = torch.stack([self.cell(query[:,i,:,:],key[:,i,:,:],value[:,i,:,:]) for i in range(T)],dim=0)
         y = torch.transpose(y,0,1)  # 第一指标与第二指标进行交换
         B,T,X,S = y.shape
         y = y.view(B,T,S)
@@ -123,6 +129,32 @@ class LinearAttention(nn.Module):
     def forget(self):
         self.cell.forget()
         pass
+    pass
+
+class SelfAttention(nn.Module):
+    def __init__(self,d_model,in_features,out_features,device,*args, **kwargs) -> None:
+        super(SelfAttention,self).__init__(*args, **kwargs)
+        self.wq = nn.Linear(in_features=in_features,out_features=d_model,bias=False).to(device)
+        self.wk = nn.Linear(in_features=in_features,out_features=d_model,bias=False).to(device)
+        self.wv = nn.Linear(in_features=in_features,out_features=d_model,bias=False).to(device)
+        
+        self.linear_attention = LinearAttention(d_model=d_model,in_features=in_features,out_features=out_features,device=device)
+        pass
+
+    def forward(self,x):
+        query = self.wq(x)
+        key = self.wk(x)
+        value = self.wv(x)
+
+        attention = self.linear_attention(query,key,value)
+        return attention
+        pass
+
+    def forget(self):
+        self.linear_attention.forget()
+
+    def is_use_rope(self,value:bool):
+        self.linear_attention.cell.is_use_rope(value)
     pass
 
 class FeedForward(nn.Module):
@@ -165,7 +197,7 @@ class MoELayer(nn.Module):
 class DecoderBlock(nn.Module):
     def __init__(self,units, device,*args, **kwargs) -> None:
         super(DecoderBlock,self).__init__(*args, **kwargs)
-        self.attention = LinearAttention(64,units,units,device).to(device)
+        self.attention = SelfAttention(64,units,units,device).to(device)
         self.feed_forward = FeedForward(in_features=units,out_features=units,device=device)
         self.norm_1 = nn.LayerNorm(normalized_shape=units).to(device)
         self.norm_2 = nn.LayerNorm(normalized_shape=units).to(device)
@@ -197,7 +229,7 @@ class Decoder(nn.Module):
         super(Decoder,self).__init__(*args, **kwargs)
         self.linear = nn.Linear(in_features=in_features,out_features=units,bias=False).to(device)
         self.decoder_blocks = [DecoderBlock(units,device).to(device) for i in range(num_block)]
-        self.decoder_blocks[0].attention.cell.is_use_rope(True)
+        self.decoder_blocks[0].attention.is_use_rope(True)
         self.decoder = nn.Sequential(*(self.decoder_blocks))
         self.norm_1 = nn.LayerNorm(normalized_shape=units)
         self.norm_2 = nn.LayerNorm(normalized_shape=units)
@@ -218,14 +250,14 @@ class Decoder(nn.Module):
         pass
     pass
 
-class DecoderLanguageModel(nn.Module):
+class LinearGPT(nn.Module):
     '''
     DecoderOnly架构语言模型\n
     采用线性注意力机制实现\n
     实现无限上下文计算\n
     '''
     def __init__(self,vocab_count,d_model,units = 512,num_block = 12,device = 'cpu', *args, **kwargs) -> None:
-        super(DecoderLanguageModel,self).__init__(*args, **kwargs)
+        super(LinearGPT,self).__init__(*args, **kwargs)
         self.embedding = nn.Embedding(vocab_count,d_model).to(device)
         self.decoder = Decoder(in_features=d_model,out_features=vocab_count,units=units,num_block=num_block,device=device,*args,**kwargs)
         pass

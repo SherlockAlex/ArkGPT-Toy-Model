@@ -1,7 +1,7 @@
 import json
 
 # 小说
-novel_files_count = 105
+novel_files_count = 138
 english_files_count = 44
 
 def get_text():
