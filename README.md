@@ -1,5 +1,5 @@
 # ArkGPT神经网络模型简介
-基于Linear-Attention的无限上下文神经网络模型，此模型尝试解决传统大语言模型内存开销过高的问题，采用以时间换空间的策略。
+基于Linear-Attention的无限上下文神经网络模型，仅仅只是一个玩具模型，此模型尝试解决传统大语言模型内存开销过高的问题，采用以时间换空间的策略。
 # ArkGPT模型架构
 ![模型架构](./Model%20Structure/ModelStructure.png)
 
