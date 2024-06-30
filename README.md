@@ -27,23 +27,28 @@ $attention = \frac{\sum_{i}^{n} sim(Q_{j}K_{i}^{T})V_{i}}{\sum_{i}^{n}sim(Q_{j}K
 # 线性注意力机制
 虽然Softmax注意力机制在训练时可以采用并行计算，训练速度快，但是具有内存资源开销大、推理速度慢等缺点。采用线性注意力可以成功规避掉这些缺点。
 
-* 基本假定
-    $sim(QK^{T}) = \psi(Q)\psi(K)^{T}$
+* 基本假定:
+    $$
+    sim(QK^{T}) = \psi(Q)\psi(K)^{T}
+    $$
 
-* $\psi(x) = [elu(x)+1]^{n}$
+* 核函数选取: 
+$$
+\psi(x) = [elu(x)+1]^{n}
+$$
 当$n\in \{1,2,3……\}$越大，注意力越集中，而当n越小，注意力越涣散。但同时n越大，越容易出现数值爆炸的问题，项目中$n = 5$
 
 * 线性注意力的公式如下：
-    $a_{j} = \frac{\sum_{i}^{n} [\psi (Q_{j})\psi (K_{i})^{T}V_{i}]}{\sum_{i}^{n}\psi (Q_{j})\psi (K_{i})^{T}+eps }$
+    $$a_{j} = \frac{\sum_{i}^{n} [\psi (Q_{j})\psi (K_{i})^{T}V_{i}]}{\sum_{i}^{n}\psi (Q_{j})\psi (K_{i})^{T}+eps }$$
 
 * Memory项为：
-    $Memory(n) = Memory(n-1) + \psi (K_{n})^{T}V_{n}$
+    $$Memory(n) = Memory(n-1) + \psi (K_{n})^{T}V_{n}$$
 
 * 归一化Zeta项为：
-    $Zeta(n) = Zeta(n-1) + \psi (K_{n})^{T}$
+    $$Zeta(n) = Zeta(n-1) + \psi (K_{n})^{T}$$
 
 * 线性注意力表现为:
-    $a_{j} = \frac{\psi (Q_{j})Memory(n)}{\psi(Q_{j})Zeta(n) + eps}$
+    $$a_{j} = \frac{\psi (Q_{j})Memory(n)}{\psi(Q_{j})Zeta(n) + eps}$$
 
 其中，eps为无穷小量，目的是为了训练的稳定性，防止出现分母为0的情况。
 
