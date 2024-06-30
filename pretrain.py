@@ -11,11 +11,11 @@ model = ArkGPT(
 model.train(
     trainset=traindata.train_data(),
     validset=traindata.valid_data(),
-    epochs=100,
+    epochs=200,
     learning_rate=0.001,
     eval_iters=5,
     context_length=128,
-    batch_size=16,
+    batch_size=8,
     save_model=True
 )
 
