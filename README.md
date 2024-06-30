@@ -1,11 +1,11 @@
 # ArkGPT神经网络模型简介
-    基于Linear-Attention的无限上下文神经网络模型，此模型尝试解决传统大语言模型内存开销过高的问题，采用以时间换空间的策略。
+基于Linear-Attention的无限上下文神经网络模型，此模型尝试解决传统大语言模型内存开销过高的问题，采用以时间换空间的策略。
 # ArkGPT模型架构
 ![模型架构](./Model%20Structure/ModelStructure.png)
 
 # 注意力机制
 注意力机制的定义式如下：
-$attention = \frac{\sum_{i}^{n} sim(Q_{j}K_{i}^{T})V_{i}}{\sum_{i}^{n}sim(Q_{j}K_{i}^{T})+eps}$
+    $$attention = \frac{\sum_{i}^{n} sim(Q_{j}K_{i}^{T})V_{i}}{\sum_{i}^{n}sim(Q_{j}K_{i}^{T})+eps}$$
 
 其中，映射
     $sim(x) \in [0,1] $
