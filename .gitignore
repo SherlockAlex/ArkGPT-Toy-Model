@@ -13,3 +13,4 @@ __pycache__/Memory.cpython-39.pyc
 *.csv
 *.txt
 *.arrow
+/语料
