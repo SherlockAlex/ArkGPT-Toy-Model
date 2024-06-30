@@ -45,15 +45,22 @@
     $$a_{j} = \frac{\sum_{i}^{n} [\psi (Q_{j})\psi (K_{i})^{T}V_{i}]}{\sum_{i}^{n}\psi (Q_{j})\psi (K_{i})^{T}+eps }$$
 
 * Memory项为：
-    $$Memory(n) = Memory(n-1) + \psi (K_{n})^{T}V_{n}$$
+    $$M(n) = \beta\cdot M(n-1) + \psi (K_{n})^{T}V_{n}$$
 
 * 归一化Zeta项为：
-    $$Zeta(n) = Zeta(n-1) + \psi (K_{n})^{T}$$
+    $$Z(n) = \beta\cdot Z(n-1) + \psi (K_{n})^{T}$$
 
 * 线性注意力表现为:
-    $$a_{j} = \frac{\psi (Q_{j})Memory(n)}{\psi(Q_{j})Zeta(n) + eps}$$
+    $$a_{j} = \frac{\psi (Q_{j})M(n)}{\psi(Q_{j})Z(n) + eps}$$
 
 其中，eps为无穷小量，目的是为了训练的稳定性，防止出现分母为0的情况。
+    $\beta$
+表示模型的遗忘系数，防止应为上下文长度过长而发生数值爆炸的情况，为了保证上下文长度，模型的遗忘系数为
+    $\beta = 1-10^{-7}$
+，可参考的稳定在上下文长度为200w到400w之间，
+    $\beta$
+越接近1，可参考上下文长度越长，且不增加内存资源的开销
+。
 
 
 # 缺点
