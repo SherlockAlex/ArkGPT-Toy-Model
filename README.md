@@ -64,4 +64,6 @@
     Model.py:保存着神经网络层。
     ArkGPT.py:模型封装。
     run.py:模型运行器。
+    train.py:模型训练器。
+    traindata.py:数据集处理文件，若想训练模型，请编写文件中的两个函数。
 
