@@ -9,3 +9,7 @@ __pycache__/Memory.cpython-39.pyc
 *.pyc
 语料/baike_qa_train.json
 语料/baike_qa_valid.json
+*.json
+*.csv
+*.txt
+*.arrow

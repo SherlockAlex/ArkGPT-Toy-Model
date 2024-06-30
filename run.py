@@ -1,8 +1,6 @@
 from ArkGPT import ArkGPT
-import torch
-import torch.nn.functional as F
 
-model = ArkGPT().load()
+model = ArkGPT(use_gpu=True).load()
 
 while True:
     text = input(">>>")

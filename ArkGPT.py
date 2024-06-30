@@ -3,13 +3,15 @@ from Model import LinearGPT
 import tiktoken
 import random
 import time
+import gc
 
 '''
 方舟生成式预训练语言模型
 '''
 
 class ArkGPT():
-    def __init__(self,d_model = 512,units = 512,num_block = 12,device = 'cpu'):
+    def __init__(self,d_model = 512,units = 512,num_block = 12,use_gpu = False):
+        device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
         self.tokener = tiktoken.get_encoding("cl100k_base")
         vocab_count = self.tokener.max_token_value + 1
         self.model = LinearGPT(vocab_count,d_model,units,num_block,device).to(device)
@@ -29,6 +31,9 @@ class ArkGPT():
         return self.generate(text=text,context_length=context_length,temperature=temperature,print_char=print_char)
         pass
 
+    def get_embedding(self):
+        return self.model.embedding
+
     def generate(self,text:str,context_length:int = 512,temperature:float = 0.5,print_char:bool = True):
         if text == "":
             return
@@ -41,7 +46,6 @@ class ArkGPT():
         def predict(index,begin_text:str=None):
             x = torch.tensor([index],dtype=torch.long,device = self.device)
             logits = self.model(x)
-            # print(self.model.decoder.decoder_blocks[0].attention.cell.pos)
             probility = torch.softmax(logits/(temperature+self.eps),dim=-1)
             
             # 从几率最高的50个词语中，随机选择
@@ -59,16 +63,18 @@ class ArkGPT():
             if not print_char:
                 return token
             if begin_text is not None:
-                print(begin_text+word,end="",flush=True)
+                print(begin_text,end="",flush=True)
             print(word,end="",flush=True)
+            gc.collect()
             return token
             pass
         
         token = predict(indices,begin_text=text)
 
-        for i in range(context_length):
-            token = predict([token])
-            pass
+        if context_length>1:
+            for i in range(context_length-1):
+                token = predict([token])
+                pass
 
         if print_char:
             print('\n')
@@ -94,7 +100,8 @@ class ArkGPT():
         pass
 
     def train(self,
-              dataset:str,
+              trainset:str,
+              validset:str,
               context_length = 512,
               epochs = 1000,
               batch_size = 8,
@@ -104,13 +111,12 @@ class ArkGPT():
               random_context = False,
               model_filename = "./model-ckpt.pt"
               ):
-        
+
         min_context_length = 128
         max_context_length = (min_context_length + 1) if context_length<=min_context_length else context_length
-
-        split_idx = int(len(dataset) * 0.9)
-        train_text = dataset[:split_idx]
-        val_text = dataset[split_idx:]
+        
+        train_text = trainset
+        val_text = validset
 
         train_data = torch.tensor(self.encode(train_text),dtype=torch.long,device=self.device)
         val_data = torch.tensor(self.encode(val_text),dtype=torch.long,device=self.device)

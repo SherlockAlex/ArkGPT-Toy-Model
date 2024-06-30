@@ -4,20 +4,15 @@ from torch.nn import functional as F
 
 eps = 1e-8
 class LinearAttentionCell(nn.Module):
-    def __init__(self,in_features,out_features,device) -> None:
+    def __init__(self,d_model,device) -> None:
         super(LinearAttentionCell,self).__init__()
-        # 定义模型及其运行设备:cpu|gpu
         self.device = device
-        self.in_features = in_features
-        self.out_features = out_features
-        # 记忆矩阵与缩放矩阵以及当前状态
+        self.d_model = d_model
         self.memory = 0
         self.zeta = 0
-        # 细胞当前处理token的位置
         self.pos = 0
-        # 计算缩放因子
-        self.dk = torch.tensor(1.0/self.out_features,dtype=torch.float32,device=self.device)
-        # 使用位置编码
+        self.forget_rate = 1-10*eps     # 防止记忆数值爆炸
+        self.dk = torch.tensor(1.0/self.d_model,dtype=torch.float32,device=self.device)
         self.use_rope = False
         pass
 
@@ -33,9 +28,9 @@ class LinearAttentionCell(nn.Module):
         return sine
 
     def forward(self,query,key,value):
+
         q = query
         k = key
-        v = value
 
         if self.use_rope:
             theta = self.pos*self.thetas
@@ -56,23 +51,18 @@ class LinearAttentionCell(nn.Module):
 
         q = torch.nn.functional.elu(q) + 1
         k = torch.nn.functional.elu(k) + 1
-        
-        # 只要等式 $(x1y1+x2y2)<=(x1^2+y1^2)(x2^2+y2^2)$ 成立
-        # 下面不等式可以增大线性注意力，甚至超越softmax注意力
-        q = q*q*q*q*q
-        k = k*k*k*k*k*self.dk
+        q = torch.pow(q,5)
+        k = torch.pow(k,5)*self.dk
 
-        # 更新模型的记忆
         delta_zeta = k.transpose(-2,-1)
-        delta_memory = torch.matmul(delta_zeta,v)
+        delta_memory = torch.matmul(delta_zeta,value)
+        memory = self.forget_rate*self.memory + delta_memory
+        zeta = self.forget_rate*self.zeta + delta_zeta
 
-        memory = self.memory + delta_memory
-        zeta = self.zeta + delta_zeta
-        # 检索模型中记忆相关的部分
-        scale = torch.matmul(q,zeta) + eps     #使用无穷小量替代0，防止出现Nan的情况
+        scale = torch.matmul(q,zeta) + eps
         score = torch.matmul(q,memory)
-        
         attention = score/scale
+
         self.apply_update(memory=memory,zeta=zeta)
         return attention
     
@@ -86,9 +76,9 @@ class LinearAttentionCell(nn.Module):
     def is_use_rope(self,value):
         self.use_rope = value
         if self.use_rope:
-            self.rotatry = torch.tensor([1 if i % 2 == 0 else -1 for i in range(self.out_features)],device=self.device)
-            self.swap_indices = torch.tensor([i+1 if i % 2 == 0 else i-1 for i in range(self.out_features)], dtype=torch.long,device=self.device)
-            indices = (torch.arange(self.out_features//2,dtype=torch.float32,device=self.device) + 1)/self.out_features
+            self.rotatry = torch.tensor([1 if i % 2 == 0 else -1 for i in range(self.d_model)],device=self.device)
+            self.swap_indices = torch.tensor([i+1 if i % 2 == 0 else i-1 for i in range(self.d_model)], dtype=torch.long,device=self.device)
+            indices = (torch.arange(self.d_model//2,dtype=torch.float32,device=self.device) + 1)/self.d_model
             self.thetas = 10000**(-2*indices)
     
     def forget(self):
@@ -102,9 +92,9 @@ class LinearAttentionCell(nn.Module):
 
 
 class LinearAttention(nn.Module):
-    def __init__(self,d_model,in_features,out_features,device,*args, **kwargs) -> None:
+    def __init__(self,d_model,out_features,device,*args, **kwargs) -> None:
         super(LinearAttention,self).__init__(*args, **kwargs)
-        self.cell = LinearAttentionCell(in_features=in_features,out_features=d_model,device = device).to(device)
+        self.cell = LinearAttentionCell(d_model=d_model,device = device).to(device)
         self.projection = nn.Linear(in_features=d_model,out_features=out_features,bias=False,device=device)
         self.dropout = nn.Dropout(0.2)
         pass
@@ -129,6 +119,10 @@ class LinearAttention(nn.Module):
     def forget(self):
         self.cell.forget()
         pass
+
+    def is_use_rope(self,value:bool):
+        self.cell.is_use_rope(value=value)
+
     pass
 
 class SelfAttention(nn.Module):
@@ -138,7 +132,7 @@ class SelfAttention(nn.Module):
         self.wk = nn.Linear(in_features=in_features,out_features=d_model,bias=False).to(device)
         self.wv = nn.Linear(in_features=in_features,out_features=d_model,bias=False).to(device)
         
-        self.linear_attention = LinearAttention(d_model=d_model,in_features=in_features,out_features=out_features,device=device)
+        self.linear_attention = LinearAttention(d_model=d_model,out_features=out_features,device=device)
         pass
 
     def forward(self,x):
@@ -154,7 +148,7 @@ class SelfAttention(nn.Module):
         self.linear_attention.forget()
 
     def is_use_rope(self,value:bool):
-        self.linear_attention.cell.is_use_rope(value)
+        self.linear_attention.is_use_rope(value)
     pass
 
 class FeedForward(nn.Module):
@@ -185,7 +179,7 @@ class MoELayer(nn.Module):
 
     def forward(self,x:torch.Tensor)->torch.Tensor:
         logits = self.router(x)
-        router = torch.softmax(self.norm(logits),dim=-1)
+        router = torch.softmax(self.norm(logits)/10,dim=-1)
         inputs = torch.split(x,self.head_size,dim=-1)
         experts = torch.stack([expert(input) for input,expert in zip(inputs,self.experts)],dim=0)
         y = torch.einsum('btx,xbts->bts',router,experts)

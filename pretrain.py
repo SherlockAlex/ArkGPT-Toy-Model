@@ -1,19 +1,17 @@
-import torch
 from ArkGPT import ArkGPT
 import traindata
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if it's available.
 model = ArkGPT(
     d_model=512,    # 词向量维度
     units=512,      # 神经网络层神经元个数
     num_block=12,   # 堆叠的块数
-    device=device   # CPU or GPU
+    use_gpu=True
 ).load()
-
-dataset = traindata.get_text()
+ 
 model.train(
-    dataset=dataset,
-    epochs=1500,
+    trainset=traindata.train_data(),
+    validset=traindata.valid_data(),
+    epochs=100,
     learning_rate=0.001,
     eval_iters=5,
     context_length=128,
