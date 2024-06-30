@@ -18,7 +18,7 @@ def train_data():
         with open('./语料/英语/'+str(file)+'.txt', 'r',encoding="utf-8") as f:
             data['english'].append({'text':f.read()})
 
-    for file in range(novel_files_count-50):
+    for file in range(novel_files_count-30):
         with open('./语料/小说/'+str(file)+'.txt', 'r',encoding="utf-16") as f:
             data['novel'].append({'text':f.read()})
     
