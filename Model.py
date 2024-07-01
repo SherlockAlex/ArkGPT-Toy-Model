@@ -157,11 +157,12 @@ class FeedForward(nn.Module):
         self.dense = nn.Linear(in_features,4*out_features).to(device)
         self.linear = nn.Linear(4*out_features,out_features).to(device)
         self.dropout = nn.Dropout(0.3).to(device)
-        self.gelu = nn.GELU()
+        #self.gelu = nn.GELU()
+        self.relu = nn.ReLU()
         pass
 
     def forward(self,x:torch.Tensor) -> torch.Tensor:
-        x = self.gelu(self.dense(x))
+        x = torch.square(self.relu(self.dense(x)))
         x = self.dropout(self.linear(x))
         return x
 
@@ -188,9 +189,9 @@ class MoELayer(nn.Module):
 
     pass
 
-class DecoderBlock(nn.Module):
+class DecoderOnlyBlock(nn.Module):
     def __init__(self,units, device,*args, **kwargs) -> None:
-        super(DecoderBlock,self).__init__(*args, **kwargs)
+        super(DecoderOnlyBlock,self).__init__(*args, **kwargs)
         self.attention = SelfAttention(64,units,units,device).to(device)
         self.feed_forward = FeedForward(in_features=units,out_features=units,device=device)
         self.norm_1 = nn.LayerNorm(normalized_shape=units).to(device)
@@ -212,7 +213,7 @@ class DecoderBlock(nn.Module):
     pass
 
 
-class Decoder(nn.Module):
+class DecoderOnly(nn.Module):
     '''
     Decoder层\n
     采用线性注意力机制实现\n
@@ -220,9 +221,9 @@ class Decoder(nn.Module):
     根据当前token输入以及记忆机制，预测下一token的输出\n
     '''
     def __init__(self,in_features,out_features,units = 512,num_block = 12,device = 'cpu',*args, **kwargs) -> None:
-        super(Decoder,self).__init__(*args, **kwargs)
+        super(DecoderOnly,self).__init__(*args, **kwargs)
         self.linear = nn.Linear(in_features=in_features,out_features=units,bias=False).to(device)
-        self.decoder_blocks = [DecoderBlock(units,device).to(device) for i in range(num_block)]
+        self.decoder_blocks = [DecoderOnlyBlock(units,device).to(device) for i in range(num_block)]
         self.decoder_blocks[0].attention.is_use_rope(True)
         self.decoder = nn.Sequential(*(self.decoder_blocks))
         self.norm_1 = nn.LayerNorm(normalized_shape=units)
@@ -253,7 +254,7 @@ class LinearGPT(nn.Module):
     def __init__(self,vocab_count,d_model,units = 512,num_block = 12,device = 'cpu', *args, **kwargs) -> None:
         super(LinearGPT,self).__init__(*args, **kwargs)
         self.embedding = nn.Embedding(vocab_count,d_model).to(device)
-        self.decoder = Decoder(in_features=d_model,out_features=vocab_count,units=units,num_block=num_block,device=device,*args,**kwargs)
+        self.decoder = DecoderOnly(in_features=d_model,out_features=vocab_count,units=units,num_block=num_block,device=device,*args,**kwargs)
         pass
 
     def forward(self,x,labels=None):
