@@ -4,18 +4,38 @@ import tiktoken
 import random
 import time
 import gc
-
+import json
+from torch.utils.data import Dataset, DataLoader
 
 '''
 方舟生成式预训练语言模型
 '''
 
+class CustomDataset(Dataset):
+    def __init__(self, data, encode_func, device):
+        self.data = data
+        self.encode_func = encode_func
+        self.device = device
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        element = self.data[idx]
+        indices = self.encode_func(str(element) + "<EOS>")
+        x = torch.tensor(indices[:-1], dtype=torch.long, device=self.device)
+        y = torch.tensor(indices[1:], dtype=torch.long, device=self.device)
+        return x, y
+
 class ArkGPT():
-    def __init__(self,d_model = 512,units = 512,num_block = 12,use_gpu = False):
-        device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
+    def __init__(self,config_file = "./model_config.json"):
+        with open(config_file,"r",encoding="utf-8") as f:
+            self.config = json.load(f)
+        
+        device = 'cuda' if self.config["use_gpu"] and torch.cuda.is_available() else 'cpu'
         self.tokener = tiktoken.get_encoding("cl100k_base")
         vocab_count = self.tokener.max_token_value + 1
-        self.model = LinearGPT(vocab_count,d_model,units,num_block,device).to(device)
+        self.model = LinearGPT(vocab_count,self.config["d_model"],self.config["units"],self.config["num_block"],device).to(device)
         self.device = device
         self.eps = 1e-8
         pass
@@ -35,17 +55,8 @@ class ArkGPT():
     def get_embedding(self):
         return self.model.embedding
 
-    def remove_extra_quotes(self,s):
-        target_index = s.find('"target":')
-        if target_index != -1:
-            quote_index = s.find('"', target_index + len('"target":') + 1)
-            if quote_index != -1 and s[quote_index + 1] == '"':
-                return s[:quote_index] + s[quote_index + 1:]
-    
-        return s
-
     def to_end(self,s:str):
-        end_str = '}'
+        end_str = '<EOS>'
         end_index = s.find(end_str)
         if end_index == -1:
             return False
@@ -146,6 +157,8 @@ class ArkGPT():
         train_data = torch.tensor(self.encode(train_text),dtype=torch.long,device=self.device)
         val_data = torch.tensor(self.encode(val_text),dtype=torch.long,device=self.device)
 
+        gc.collect()
+
         def get_batch(split: str,ctx_len:int):
             data = train_data if split == 'train' else val_data
             idxs = torch.randint(low=0, high=len(data) - ctx_len, size=(batch_size,))
@@ -192,7 +205,6 @@ class ArkGPT():
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
-                time.sleep(1.0/30)
                 pass
 
             if save_model:
@@ -202,6 +214,18 @@ class ArkGPT():
             self.save(model_filename)
             pass
 
+        pass
+
+    def set_finetune_model(self,pretrain_model = "./model-ckpt.pt"):
+        # 开始
+        print("正在加载预训练模型...")
+        self.load(filename=pretrain_model)
+        layer_counter = 0
+        for param in self.model.parameters():
+            if layer_counter == 0 or layer_counter%2 == 0:
+                param.requires_grad = False
+                layer_counter = layer_counter + 1
+        return self
         pass
 
     def finetune(self,
@@ -221,28 +245,20 @@ class ArkGPT():
 
         for element in train_set:
             indices = self.encode(str(element)+"<EOS>")
-            x = torch.tensor(indices[:-1],dtype=torch.long,device=self.device)
-            y = torch.tensor(indices[1:],dtype=torch.long,device=self.device)
+            x = torch.tensor(indices[:-1],dtype=torch.long)
+            y = torch.tensor(indices[1:],dtype=torch.long)
             trainset.append((x,y))
 
         for element in valid_set:
             indices = self.encode(str(element)+"<EOS>")
-            x = torch.tensor(indices[:-1],dtype=torch.long,device=self.device)
-            y = torch.tensor(indices[1:],dtype=torch.long,device=self.device)
+            x = torch.tensor(indices[:-1],dtype=torch.long)
+            y = torch.tensor(indices[1:],dtype=torch.long)
             validset.append((x,y))
 
         random.shuffle(trainset)
         random.shuffle(validset)
 
         # 开始
-        print("正在加载预训练模型...")
-        self.load(filename=pretrain_model)
-
-        layer_counter = 0
-        for param in self.model.parameters():
-            if layer_counter == 0 or layer_counter%2 == 0:
-                param.requires_grad = False
-                layer_counter = layer_counter + 1
 
         def get_batch(split: str):
             data = trainset if split == 'train' else validset
@@ -301,7 +317,7 @@ class ArkGPT():
             pass
 
         pass
-
+    
     def head(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
