@@ -17,8 +17,8 @@ model.pretrain(
 '''
 
 model.finetune(
-    train_set=traindata.prompt_dataset("./语料/trainset.json"),
-    valid_set=traindata.prompt_dataset("./语料/validset.json"),
+    train_set=traindata.prompt_dataset("./语料/wiki_train.json"),
+    valid_set=traindata.prompt_dataset("./语料/wiki_valid.json"),
     epochs=1000,
     learning_rate=0.001,
     eval_iters=5,

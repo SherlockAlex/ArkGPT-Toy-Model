@@ -10,5 +10,5 @@ while True:
     if text == "清空上下文":
         model.forget()
         continue
-    prompt = model(text,1,0.5,True)
+    prompt = model(text,1024,0.5,True)
     pass
