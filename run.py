@@ -1,12 +1,12 @@
 from ArkGPT import ArkGPT
 
-model = ArkGPT().load("./model-ckpt.pt")
+model = ArkGPT().load("./model-ckpt-finetune.pt")
 
-#start = '\",\"target\":\"'
+start = '\",\"target\":\"'
 
 while True:
-    #text = '{\"input\":\"' + input(">>>") + start
-    text = input(">>>")
+    text = '{\"input\":\"' + input(">>>") + start
+    #text = input(">>>")
     if text == "清空上下文":
         model.forget()
         continue

@@ -154,8 +154,8 @@ class ArkGPT():
         train_text = trainset
         val_text = validset
 
-        train_data = torch.tensor(self.encode(train_text),dtype=torch.long,device=self.device)
-        val_data = torch.tensor(self.encode(val_text),dtype=torch.long,device=self.device)
+        train_data = torch.tensor(self.encode(train_text),dtype=torch.long)
+        val_data = torch.tensor(self.encode(val_text),dtype=torch.long)
 
         gc.collect()
 
@@ -240,32 +240,19 @@ class ArkGPT():
               ):
         
         print("正在加载数据集...")
-        trainset = []
-        validset = []
-
-        for element in train_set:
-            indices = self.encode(str(element)+"<EOS>")
-            x = torch.tensor(indices[:-1],dtype=torch.long)
-            y = torch.tensor(indices[1:],dtype=torch.long)
-            trainset.append((x,y))
-
-        for element in valid_set:
-            indices = self.encode(str(element)+"<EOS>")
-            x = torch.tensor(indices[:-1],dtype=torch.long)
-            y = torch.tensor(indices[1:],dtype=torch.long)
-            validset.append((x,y))
-
-        random.shuffle(trainset)
-        random.shuffle(validset)
+        random.shuffle(train_set)
+        random.shuffle(valid_set)
+        print("加载数据集成功")
 
         # 开始
 
         def get_batch(split: str):
-            data = trainset if split == 'train' else validset
+            data = train_set if split == 'train' else valid_set
             i = random.randint(0,len(data)-1)
-            dataset = data[i]
-            x = torch.stack([dataset[0]]).to(self.device)
-            y = torch.stack([dataset[1]]).to(self.device)
+            text = data[i]
+            indices = self.encode(str(text)+"<EOS>")
+            x = torch.tensor([indices[:-1]],dtype=torch.long).to(self.device)
+            y = torch.tensor([indices[1:]],dtype=torch.long).to(self.device)
             return x, y
         
         @torch.no_grad

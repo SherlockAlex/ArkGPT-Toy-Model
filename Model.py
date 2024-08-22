@@ -15,8 +15,8 @@ class Attention(nn.Module):
     def forward(self, query, key, value, mask=None):
         
         if self.is_use_rope:
-            B,T,C = query.shape
 
+            B,T,C = query.shape
             
             positions = torch.arange(T, dtype=torch.float32, device=self.device).unsqueeze(1)
             pos_thetas = positions * self.thetas
@@ -63,12 +63,13 @@ class LinearAttentionCell(nn.Module):
         self.use_rope = False
         pass
 
-
+    @torch.no_grad
     def get_cosine(self,theta:torch.Tensor):
         cosines = torch.cos(theta)
         cosines = cosines.repeat_interleave(2,dim=-1)
         return cosines
     
+    @torch.no_grad
     def get_sine(self,theta:torch.Tensor):
         sine = torch.sin(theta)
         sine = sine.repeat_interleave(2,dim=-1)
@@ -80,9 +81,10 @@ class LinearAttentionCell(nn.Module):
         k = key
 
         if self.use_rope:
-            theta = self.pos*self.thetas
-            cosines = self.get_cosine(theta)
-            sines = self.get_sine(theta)
+            with torch.no_grad():
+                theta = self.pos*self.thetas
+                cosines = self.get_cosine(theta)
+                sines = self.get_sine(theta)
 
             B,T,C = q.shape
             q_x = q
@@ -100,8 +102,8 @@ class LinearAttentionCell(nn.Module):
         k:torch.Tensor = torch.nn.functional.elu(k) + 1
 
         # (1,s)
-        q = torch.pow(q,4)
-        k = torch.pow(k,4)*self.dk
+        q = torch.pow(q,5)
+        k = torch.pow(k,5)
 
         delta_zeta = k.transpose(-2,-1)
         delta_memory = torch.matmul(delta_zeta,value)
@@ -125,10 +127,12 @@ class LinearAttentionCell(nn.Module):
     def is_use_rope(self,value):
         self.use_rope = value
         if self.use_rope:
-            self.rotatry = torch.tensor([1 if i % 2 == 0 else -1 for i in range(self.d_model)],device=self.device)
-            self.swap_indices = torch.tensor([i+1 if i % 2 == 0 else i-1 for i in range(self.d_model)], dtype=torch.long,device=self.device)
-            indices = (torch.arange(self.d_model//2,dtype=torch.float32,device=self.device) + 1)/self.d_model
-            self.thetas = 10000**(-2*indices)
+            with torch.no_grad():
+                self.rotatry = torch.tensor([1 if i % 2 == 0 else -1 for i in range(self.d_model)],device=self.device)
+                self.swap_indices = torch.tensor([i+1 if i % 2 == 0 else i-1 for i in range(self.d_model)], dtype=torch.long,device=self.device)
+                indices = (torch.arange(self.d_model//2,dtype=torch.float32) + 1)/self.d_model
+                self.thetas = 10000**(-2*indices).to(device=self.device)
+                self.thetas.requires_grad=False
     
     def forget(self):
         with torch.no_grad():
@@ -149,19 +153,21 @@ class LinearAttention(nn.Module):
         pass
 
     def forward(self,query:torch.Tensor,key:torch.Tensor,value:torch.Tensor) -> torch.Tensor:
-        B,T,S = query.shape
-        query = query.view(B,T,1,S)
+        with torch.no_grad():
+            B,T,S = query.shape
+            query = query.view(B,T,1,S)
 
-        B,T,S = key.shape
-        key = key.view(B,T,1,S)
+            B,T,S = key.shape
+            key = key.view(B,T,1,S)
 
-        B,T,S = value.shape
-        value = value.view(B,T,1,S)
+            B,T,S = value.shape
+            value = value.view(B,T,1,S)
 
         y = torch.stack([self.cell(query[:,i,:,:],key[:,i,:,:],value[:,i,:,:]) for i in range(T)],dim=0)
         y = torch.transpose(y,0,1)  # 第一指标与第二指标进行交换
-        B,T,X,S = y.shape
-        y = y.view(B,T,S)
+        with torch.no_grad():
+            B,T,X,S = y.shape
+            y = y.view(B,T,S)
         y = self.dropout(self.projection(y))
         return y
 
@@ -225,12 +231,12 @@ class FeedForward(nn.Module):
         self.dense = nn.Linear(in_features,4*out_features).to(device)
         self.linear = nn.Linear(4*out_features,out_features).to(device)
         self.dropout = nn.Dropout(0.3).to(device)
-        #self.gelu = nn.GELU()
-        self.relu = nn.ReLU()
+        self.gelu = nn.GELU()
+        #self.relu = nn.ReLU()
         pass
 
     def forward(self,x:torch.Tensor) -> torch.Tensor:
-        x = torch.square(self.relu(self.dense(x)))
+        x = self.gelu(self.dense(x))
         x = self.dropout(self.linear(x))
         return x
 
@@ -248,7 +254,7 @@ class MoELayer(nn.Module):
 
     def forward(self,x:torch.Tensor)->torch.Tensor:
         logits = self.router(x)
-        router = torch.softmax(self.norm(logits)/10,dim=-1)
+        router = torch.softmax(self.norm(logits),dim=-1)
         inputs = torch.split(x,self.head_size,dim=-1)
         experts = torch.stack([expert(input) for input,expert in zip(inputs,self.experts)],dim=0)
         y = torch.einsum('btx,xbts->bts',router,experts)
@@ -271,8 +277,8 @@ class DecoderOnlyBlock(nn.Module):
         input = x
         x = self.norm_1(x)
         x = self.norm_2(self.attention(x)+x)
-        x = self.norm_3(self.feed_forward(x) + x) + input
-        return x
+        x = self.norm_3(self.feed_forward(x) + x)
+        return x + input
         
     def forget(self):
         self.attention.forget()
@@ -323,7 +329,6 @@ class LinearGPT(nn.Module):
         super(LinearGPT,self).__init__(*args, **kwargs)
         self.embedding = nn.Embedding(vocab_count,d_model).to(device)
         self.decoder = DecoderOnly(in_features=d_model,out_features=vocab_count,units=units,num_block=num_block,device=device,*args,**kwargs)
-        self.max_seq_len = 10
         pass
 
     def forward(self,x,labels=None):
@@ -413,9 +418,10 @@ class EmbeddingModel(nn.Module):
         self.forget()
         if labels is not None:
             # 训练模式
-            B,T,C = logits.shape
-            logits_reshaped = logits.view(B * T, C)
-            labels_reshaped = labels.view(B * T)
+            with torch.no_grad():
+                B,T,C = logits.shape
+                logits_reshaped = logits.view(B * T, C)
+                labels_reshaped = labels.view(B * T)
             loss = F.cross_entropy(input=logits_reshaped, target=labels_reshaped)
             # 计算模型正确率
             predictions = torch.argmax(logits,dim=-1).view(B * T)

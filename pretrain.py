@@ -7,7 +7,7 @@ model = ArkGPT().load()
 model.pretrain(
     trainset=traindata.pretrain_train_data(),
     validset=traindata.pretrain_valid_data(),
-    epochs=1000,
+    epochs=500,
     learning_rate=0.001,
     eval_iters=5,
     context_length=128,
@@ -16,11 +16,12 @@ model.pretrain(
 )
 '''
 
+
 model.finetune(
     train_set=traindata.prompt_dataset("./语料/wiki_train.json"),
     valid_set=traindata.prompt_dataset("./语料/wiki_valid.json"),
     epochs=1000,
-    learning_rate=0.001,
+    learning_rate=0.0001,
     eval_iters=5,
     save_model=True,
     model_filename='./model-ckpt.pt'
